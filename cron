@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# https://mywiki.wooledge.org/BashFAQ/028
+if [[ $BASH_SOURCE = */* ]]; then
+  cd -- "${BASH_SOURCE%/*}/" || exit 1
+fi
+
+source env/bin/activate
+python3 morningstar.py --headless \
+  MU   \
+  CTAS \
+  MSCI \
+  VTRS \
+  CSL  \
+  CVNA \
+  AMS  \
+  CVR  \
+  INTZ \
+  \
+  funds/"$(date +%Y%m%d)-funds.csv" \
+  \
+  FLCOX \
+  FXAIX \
+  FSPGX \
+  FSMDX \
+  FSSNX \
+  VTSAX \
+  \

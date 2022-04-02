@@ -1,0 +1,7 @@
+/credentials.ini
+*.csv
+/addons/
+geckodriver.log
+/env/
+*.swp
+__pycache__/

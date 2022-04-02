@@ -1,0 +1,6 @@
+lxml
+numpy
+qpsolvers
+requests
+selenium
+webdriver-manager
