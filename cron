@@ -5,24 +5,62 @@ if [[ $BASH_SOURCE = */* ]]; then
   cd -- "${BASH_SOURCE%/*}/" || exit 1
 fi
 
+dummy_stocks=(
+  MU
+  CL
+  MSCI
+  HPE
+  DRI
+  CVNA
+  AAWW
+  BECN
+  CLBK
+)
+
+declare -A actions=(
+  [default]=1
+  [check-dummy-stocks]=1
+)
+
+usage() {
+  printf 'usage: %s [default | check-dummy-stocks]\n' "$0" >&2
+}
+
+if (( $# < 1 )); then
+  action=default
+else
+  if (( $# > 1 )); then
+    usage
+    exit 1
+  fi
+  if ! (( ${actions[$1]} )); then
+    usage
+    exit 1
+  fi
+  action="$1"
+fi
+
+case $action in
+  default)
+    csv=funds/"$(date +%Y%m%d)-funds.csv"
+    funds=(
+      FLCOX
+      FXAIX
+      FSPGX
+      FSMDX
+      FSSNX
+      VTSAX
+    )
+    ;;
+  check-dummy-stocks)
+    csv=/dev/null
+    funds=()
+    ;;
+  *)
+    printf '%s: unexpected action %s\n' "$0" "$action" >&2
+    exit 1
+    ;;
+esac
+
 source env/bin/activate
-python3 morningstar.py --headless \
-  MU   \
-  CTAS \
-  MSCI \
-  VTRS \
-  CSL  \
-  CVNA \
-  AMS  \
-  CVR  \
-  INTZ \
-  \
-  funds/"$(date +%Y%m%d)-funds.csv" \
-  \
-  FLCOX \
-  FXAIX \
-  FSPGX \
-  FSMDX \
-  FSSNX \
-  VTSAX \
-  \
+python3 morningstar.py --headless "${dummy_stocks[@]}" "$csv" "${funds[@]}"
