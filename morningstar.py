@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from argparse import ArgumentParser
+from collections import defaultdict
 from collections import deque
 from configparser import ConfigParser
 from contextlib import AbstractContextManager
@@ -10,7 +11,10 @@ from decimal import Decimal as d
 from decimal import localcontext
 from decimal import ROUND_UP
 from functools import cache
+from itertools import chain
 from itertools import count
+from itertools import repeat
+import json
 import os.path
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -262,6 +266,33 @@ class MorningstarWebdriver:
         return self._style_box()
 
 
+class ContextManagerWrapper(AbstractContextManager):
+    def __init__(self, thing):
+        self.thing = thing
+
+    def __enter__(self):
+        self.value = self.thing.__enter__()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        del self.value
+        return self.thing.__exit__(exc_type, exc_value, traceback)
+
+    def new(self, thing):
+        self.__exit__(None, None, None)
+        self.thing = thing
+        self.__enter__()
+
+
+def get_driver(headless):
+    options = Options()
+    options.headless = headless
+    return Firefox(options=options, service=Service(GeckoDriverManager().install()))
+
+
+def get_addons_directory():
+    return TemporaryDirectory()
+
+
 class Cache:
     @cache
     def _style_box_cache(self, hashable_portfolio):
@@ -297,6 +328,10 @@ def round3(x, rounding, base=None):
         return base * round(x / base, 0)
 
 
+class SearchError(RuntimeError):
+    pass
+
+
 def solve(control_weight, percentage, control_percentage):
     # percentage = (1 - control_weight) start_percentage + control_weight control_percentage
     # => (1 - control_weight) start_percentage = percentage - control_weight control_percentage
@@ -304,53 +339,26 @@ def solve(control_weight, percentage, control_percentage):
     return (percentage - control_weight * control_percentage) / (1 - control_weight)
 
 
-class ContextManagerWrapper(AbstractContextManager):
-    def __init__(self, thing):
-        self.thing = thing
-
-    def __enter__(self):
-        self.value = self.thing.__enter__()
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        del self.value
-        return self.thing.__exit__(exc_type, exc_value, traceback)
-
-    def new(self, thing):
-        self.__exit__(None, None, None)
-        self.thing = thing
-        self.__enter__()
-
-
-def get_driver(headless):
-    options = Options()
-    options.headless = headless
-    return Firefox(options=options, service=Service(GeckoDriverManager().install()))
-
-
-def get_addons_directory():
-    return TemporaryDirectory()
-
-
 class Morningstar:
     def _init(self):
-        for i in count():
+        for try_ in count():
             try:
                 self._morningstar_driver = MorningstarWebdriver(
                     self._config, self._credentials, self._driver_cm.value, self._addons_directory_cm.value
                 )
                 return
             except WebDriverException as e:
-                if i >= int(self._config["morningstar.webdriver"]["max_tries"]) - 1:
+                if try_ >= int(self._config["morningstar.webdriver"]["max_tries"]) - 1:
                     raise RuntimeError from e
                 self._driver_cm.new(get_driver(self._headless))
                 self._addons_directory_cm.new(get_addons_directory())
 
     def style_box(self, portfolio):
-        for i in count():
+        for try_ in count():
             try:
                 return self._cache.style_box(self._morningstar_driver, portfolio)
             except WebDriverException as e:
-                if i >= int(self._config["morningstar.webdriver"]["max_tries"]) - 1:
+                if try_ >= int(self._config["morningstar.webdriver"]["max_tries"]) - 1:
                     raise RuntimeError from e
                 self._init()
 
@@ -394,7 +402,11 @@ class Morningstar:
                 raise RuntimeError
         self._control_ticker_symbols = control_ticker_symbols
 
-    def _search(self, ticker_symbol, i):
+    def _search(self, ticker_symbol, i, *, _test_inject_after=None, _test_fault_percentage=None):
+        if _test_inject_after is None:
+            _test_inject_after = -1
+        if _test_fault_percentage is None:
+            _test_fault_percentage = 100
         lb = d("0")
         ub = d("1")
         start_percentage = self.style_box(
@@ -409,14 +421,14 @@ class Morningstar:
             #
             dummy_portfolio(ticker_symbol, control_ticker_symbol, ub)
         )[i]
-        if control_percentage == start_percentage:
-            return lb, d(start_percentage), control_percentage
         target_percentage = start_percentage + round3(d(control_percentage - start_percentage) / 2, ROUND_UP)
         lb_percentage = start_percentage
         ub_percentage = control_percentage
-        while True:
+        for _test_j in count():
             control_weight = round3((lb + ub) / 2, ROUND_UP, base=d("0.000001"))
             if control_weight == ub:
+                if abs(ub_percentage - lb_percentage) != 1:
+                    raise SearchError
                 if ub_percentage % 2 != 0:
                     return lb, lb_percentage + (ub_percentage - lb_percentage) * d("0.5050"), control_percentage
                 return ub, ub_percentage + (lb_percentage - ub_percentage) * d("0.5050"), control_percentage
@@ -424,6 +436,14 @@ class Morningstar:
                 #
                 dummy_portfolio(ticker_symbol, control_ticker_symbol, control_weight)
             )[i]
+            if _test_j == _test_inject_after:
+                percentage = _test_fault_percentage
+            if target_percentage > start_percentage:
+                if not lb_percentage <= percentage <= ub_percentage:
+                    raise SearchError
+            else:
+                if not ub_percentage <= percentage <= lb_percentage:
+                    raise SearchError
             if d(percentage - target_percentage) / d(target_percentage - start_percentage) >= 0:
                 # already hit target_percentage
                 #
@@ -446,8 +466,59 @@ class Morningstar:
                 lb = control_weight
                 lb_percentage = percentage
 
-    def fund(self, ticker_symbol):
-        return array(tuple(float(solve(*self._search(ticker_symbol, i))) for i in range(9))).reshape(3, 3)
+    def search(self, ticker_symbol, i, *, _test_inject_after=None, _test_fault_percentage=None):
+        if _test_inject_after is None:
+            _test_inject_after = repeat(None)
+        else:
+            _test_inject_after = chain(_test_inject_after, repeat(None))
+        if _test_fault_percentage is None:
+            _test_fault_percentage = repeat(None)
+        else:
+            _test_fault_percentage = chain(_test_fault_percentage, repeat(None))
+        for try_, _test_inject_after_try, _test_fault_percentage_try in zip(
+            count(), _test_inject_after, _test_fault_percentage
+        ):
+            try:
+                return self._search(
+                    ticker_symbol,
+                    i,
+                    _test_inject_after=_test_inject_after_try,
+                    _test_fault_percentage=_test_fault_percentage_try,
+                )
+            except SearchError as e:
+                if try_ >= int(self._config["morningstar.webdriver"]["max_tries"]) - 1:
+                    raise RuntimeError from e
+                self._driver_cm.new(get_driver(self._headless))
+                self._addons_directory_cm.new(get_addons_directory())
+
+                self._init()
+
+                self._cache = Cache()
+
+    def fund(self, ticker_symbol, *, _test_inject_after=None, _test_fault_percentage=None):
+        if _test_inject_after is None:
+            _test_inject_after = defaultdict(lambda: None)
+        else:
+            _test_inject_after = defaultdict(lambda: None, _test_inject_after)
+        if _test_fault_percentage is None:
+            _test_fault_percentage = defaultdict(lambda: None)
+        else:
+            _test_fault_percentage = defaultdict(lambda: None, _test_fault_percentage)
+        return array(
+            tuple(
+                float(
+                    solve(
+                        *self.search(
+                            ticker_symbol,
+                            i,
+                            _test_inject_after=_test_inject_after[str(i)],
+                            _test_fault_percentage=_test_fault_percentage[str(i)],
+                        )
+                    )
+                )
+                for i in range(9)
+            )
+        ).reshape(3, 3)
 
 
 CONFIG_PATH = "config.ini"
@@ -469,11 +540,21 @@ def main(
     config_path=None,
     credentials_path=None,
     headless=None,
+    _test_inject_after=None,
+    _test_fault_percentage=None,
 ):
     if config_path is None:
         config_path = CONFIG_PATH
     if credentials_path is None:
         credentials_path = CREDENTIALS_PATH
+    if _test_inject_after is None:
+        _test_inject_after = defaultdict(lambda: None)
+    else:
+        _test_inject_after = defaultdict(lambda: None, _test_inject_after)
+    if _test_fault_percentage is None:
+        _test_fault_percentage = defaultdict(lambda: None)
+    else:
+        _test_fault_percentage = defaultdict(lambda: None, _test_fault_percentage)
     config = ConfigParser()
     config.read(config_path)
     credentials = ConfigParser()
@@ -497,7 +578,14 @@ def main(
             sg,
         )
 
-        return {ticker_symbol: morningstar.fund(ticker_symbol) for ticker_symbol in ticker_symbols}
+        return {
+            ticker_symbol: morningstar.fund(
+                ticker_symbol,
+                _test_inject_after=_test_inject_after[ticker_symbol],
+                _test_fault_percentage=_test_fault_percentage[ticker_symbol],
+            )
+            for ticker_symbol in ticker_symbols
+        }
 
 
 def write(funds_path, funds):
@@ -525,6 +613,8 @@ if __name__ == "__main__":
     parser.add_argument("sg")
     parser.add_argument("csv")
     parser.add_argument("funds", nargs="*")
+    parser.add_argument("--test-inject-after", type=json.loads)
+    parser.add_argument("--test-fault-percentage", type=json.loads)
     args = parser.parse_args()
 
     funds = main(
@@ -541,6 +631,8 @@ if __name__ == "__main__":
         config_path=args.config,
         credentials_path=args.credentials,
         headless=args.headless,
+        _test_inject_after=args.test_inject_after,
+        _test_fault_percentage=args.test_fault_percentage,
     )
 
     write(args.csv, funds)
