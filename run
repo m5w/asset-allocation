@@ -19,14 +19,18 @@ dummy_stocks=(
 
 prog="$0"
 usage() {
-  printf 'usage: %s [-h] [--headless] [ticker_symbol ...]\n' "$prog" >&2
+  printf 'usage: %s [-h] [--debug] -- [--headless] -- [funds ...]\n' "$prog" >&2
 }
+debug=0
 funds=()
 while (( $# )); do
   case $1 in
     -h|--help)
       usage
       exit
+      ;;
+    --debug)
+      debug=1
       ;;
     --)
       shift
@@ -62,6 +66,11 @@ while (( $# )); do
 done
 
 args=()
+if (( debug )); then
+  args+=(python3 -m pdb morningstar.py)
+else
+  args+=(python3 morningstar.py)
+fi
 args+=("${options[@]}")
 args+=(--)
 args+=("${dummy_stocks[@]}")
@@ -71,6 +80,15 @@ else
   args+=(funds/"$(date +%Y%m%d)-funds.csv")
 fi
 args+=("${funds[@]}")
-echo "${args[@]}"
+args_s=
+start=1
+for arg in "${args[@]}"; do
+  if (( ! $start )); then
+    args_s+=' '
+  fi
+  args_s+="$(printf -- '%q\n' "$arg")"
+  start=0
+done
+printf -- '%s\n' "$args_s"
 source env/bin/activate
-python3 morningstar.py "${args[@]}"
+"${args[@]}"

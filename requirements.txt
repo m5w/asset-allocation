@@ -1,4 +1,5 @@
 lxml
+mypy
 numpy
 qpsolvers
 requests
