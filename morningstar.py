@@ -118,10 +118,9 @@ def request(method: str, url: str, section: SectionProxy, **kwargs) -> Response:
 @contextmanager
 def requestcontext(section: SectionProxy) -> Generator[None, None, None]:
     request_ = requests.api.request
-    requests.api.request = lambda method, url, **kwargs: request(method, url, section, **kwargs)
-    requests.request = requests.api.request
+    requests.request = requests.api.request = lambda method, url, **kwargs: request(method, url, section, **kwargs)
     yield
-    requests.api.request = request_
+    requests.request = requests.api.request = request_
 
 
 def get_driver(config: ConfigParser, headless: Optional[bool] = None) -> Firefox:
