@@ -512,13 +512,15 @@ def solve(
     control_percentage: int,
     equity_percentage: Optional[d] = None,
 ) -> d:
-    if equity_percentage is None:
-        equity_percentage = d("100")
     if not 0 <= control_weight < 1:
         raise ValueError
     if not 0 <= portfolio_percentage <= 100:
         raise ValueError
     if not 0 <= control_percentage <= 100:
+        raise ValueError
+    if equity_percentage is None:
+        equity_percentage = d("100")
+    if not 0 <= equity_percentage <= 100:
         raise ValueError
     equity_weight = equity_percentage / 100
     #  p := percentage
