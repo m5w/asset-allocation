@@ -637,9 +637,17 @@ class Morningstar:
         control_ticker_symbols = (lv, lb, lg, mv, mb, mg, sv, sb, sg)
         for i, ticker_symbol in enumerate(control_ticker_symbols):
             expected_style_box = tuple(100 if j == i else 0 for j in range(9))
-            style_box = self.style_box({ticker_symbol: d("1")})
-            if style_box != expected_style_box:
-                raise RuntimeError
+            for try_ in count():
+                style_box = self.style_box({ticker_symbol: d("1")})
+                if style_box != expected_style_box:
+                    if try_ >= int(self._config["morningstar_firefox.control_style_box_try"]["try.max_retries"]):
+                        raise RuntimeError
+                    self._driver_cm.new(get_driver(self._config, self._headless))
+                    self._addons_directory_cm.new(get_addons_directory())
+                    self._cache = {}
+
+                    self._init()
+                break
         self._control_ticker_symbols = control_ticker_symbols
 
     def _search(
