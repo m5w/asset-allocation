@@ -207,7 +207,7 @@ class MorningstarWebDriver(WebDriver):
 
         self._driver.get(
             #
-            "https://www.morningstar.com/auth-init?"
+            "https://www.morningstar.com/login?"
             "destination=https://www.morningstar.com/instant-x-ray"
         )
         WebDriverWait(
@@ -639,15 +639,15 @@ class Morningstar:
             expected_style_box = tuple(100 if j == i else 0 for j in range(9))
             for try_ in count():
                 style_box = self.style_box({ticker_symbol: d("1")})
-                if style_box != expected_style_box:
-                    if try_ >= int(self._config["morningstar_firefox.control_style_box_try"]["try.max_retries"]):
-                        raise RuntimeError
-                    self._driver_cm.new(get_driver(self._config, self._headless))
-                    self._addons_directory_cm.new(get_addons_directory())
-                    self._cache = {}
+                if style_box == expected_style_box:
+                    break
+                if try_ >= int(self._config["morningstar_firefox.control_style_box_try"]["try.max_retries"]):
+                    raise RuntimeError
+                self._driver_cm.new(get_driver(self._config, self._headless))
+                self._addons_directory_cm.new(get_addons_directory())
+                self._cache = {}
 
-                    self._init()
-                break
+                self._init()
         self._control_ticker_symbols = control_ticker_symbols
 
     def _search(
@@ -893,11 +893,20 @@ class Morningstar:
         _test_inject_after: Optional[int] = None,
         _test_fault_percentage: Optional[int] = None,
     ) -> tuple[d, d, int]:
-        equity_percentage = (
-            #
-            solve(*self.search_asset_allocation(ticker_symbol, 1))
-            + solve(*self.search_asset_allocation(ticker_symbol, 2))
-        )
+        equity_percentages = {}
+        for i in (1, 2):
+            equity_percentage = solve(*self.search_asset_allocation(ticker_symbol, i))
+            if not 0 <= equity_percentage <= 100:
+                raise ValueError
+            equity_percentages[i] = equity_percentage
+        equity_percentage = sum(equity_percentages.values())
+        if equity_percentage > 100:
+            print(
+                f"warning: {ticker_symbol}: "
+                f"{equity_percentages[1]}% U.S. + {equity_percentages[2]}% foreign"
+                f" = {equity_percentage}% > 100%"
+            )
+            equity_percentage = d("100")
         return self._search(
             lambda self, portfolio: self.style_box(portfolio)[i],
             unround_style_box,

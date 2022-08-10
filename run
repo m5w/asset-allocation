@@ -5,18 +5,6 @@ if [[ $BASH_SOURCE = */* ]]; then
   cd -- "${BASH_SOURCE%/*}/" || exit 1
 fi
 
-dummy_stocks=(
-  MU
-  CL
-  MSCI
-  HPE
-  DRI
-  CVNA
-  AAWW
-  BECN
-  CLBK
-)
-
 prog="$0"
 usage() {
   printf 'usage: %s [-h] [--debug] -- [--headless] -- [funds ...]\n' "$prog" >&2
@@ -73,6 +61,7 @@ else
 fi
 args+=("${options[@]}")
 args+=(--)
+mapfile -t dummy_stocks <control-ticker-symbols.txt
 args+=("${dummy_stocks[@]}")
 if (( ${#funds[@]} < 1 )); then
   args+=(/dev/null)
