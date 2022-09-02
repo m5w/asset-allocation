@@ -79,5 +79,5 @@ for arg in "${args[@]}"; do
   start=0
 done
 printf -- '%s\n' "$args_s"
-source env/bin/activate
+source venv/bin/activate
 "${args[@]}"

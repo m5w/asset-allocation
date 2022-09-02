@@ -128,9 +128,13 @@ def get_driver(config: ConfigParser, headless: Optional[bool] = None) -> Firefox
         headless = False
     options = Options()
     options.headless = headless
+    options.log.level = "trace"
     with requestcontext(config["request"]):
         requests.request = lambda method, url, **kwargs: request(method, url, config["request"], **kwargs)
-        return Firefox(options=options, service=Service(GeckoDriverManager().install()))
+        return Firefox(
+            options=options,
+            service=Service(GeckoDriverManager().install(), service_args=["--allow-hosts=localhost"]),
+        )
 
 
 def get_addons_directory() -> TemporaryDirectory:

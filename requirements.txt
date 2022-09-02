@@ -2,6 +2,7 @@ lxml
 mypy
 numpy
 qpsolvers
+quadprog
 requests
 selenium
 webdriver-manager

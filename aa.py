@@ -10,7 +10,7 @@ from numpy import ones
 from numpy import zeros
 from qpsolvers import solve_qp
 
-with open("funds/20220330-funds.csv", newline="") as funds_file:
+with open("funds/20220826-funds.csv", newline="") as funds_file:
     reader = csv.reader(funds_file)
     funds = {row[0]: array(row[1:]).astype(float).reshape(3, 3) for row in reader}
 portfolio_funds = {
@@ -113,5 +113,6 @@ def portfolio(k=None, wt=None, target=None):
         A=ones(F.shape[1]),
         b=1.0,
         lb=zeros(F.shape[1]),
+        solver="quadprog",
     )
     return _portfolio(w)
